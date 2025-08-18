@@ -6,7 +6,8 @@ import polars as pl
 from polars import selectors as cs
 import geopandas as gpd
 import concurrent.futures
-import tqdm
+import tqdm, glob
+import pandas as pd
 from functools import lru_cache
 
 df = pl.scan_csv('adgangsadresser?format=csv').collect(engine = 'streaming').with_columns(
@@ -55,3 +56,18 @@ lf = pl.scan_parquet('data/adresser.pq').select(pl.col("kommunekode").unique())
 kommunerz = lf.collect().to_series().to_list()
 with concurrent.futures.ThreadPoolExecutor(max_workers = 8) as executor:
     res = list(tqdm.tqdm(executor.map(parse_voronoi, kommunerz)))
+
+vo_list = glob.glob('data/voronoi/adresser_v*.pq')
+
+gdf = gpd.read_parquet(vo_list[0])
+
+for data in vo_list:
+    if data == vo_list[0]:
+        pass
+    gdf2 = gpd.read_parquet(data)
+
+    gdf = pd.concat([gdf, gdf2])
+
+gdf = gdf.reset_index(drop = True)
+
+gdf.to_parquet('data/adresser_voronoi.pq')
