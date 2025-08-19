@@ -31,6 +31,8 @@ And install dependencies with uv:
 
 ```bash
 uv sync
+mkdir data
+mkdir data/voronoi
 ```
 
 
@@ -38,14 +40,12 @@ uv sync
 
 Fetch all adresses:
 ```bash
-mkdir data
 curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
 ```
 
 Example with Frederiksberg (kommune=0147 or 147):
 
 ```bash
-mkdir data
 curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?kommunekode=0147&format=csv"
 ```
 
