@@ -27,6 +27,16 @@ git clone https://github.com/jorgenhost/school-boundaries.git
 cd school-boundaries
 ```
 
+You can run the full pipeline with `main.sh`:
+
+```bash
+bash main.sh
+```
+
+Or continue with next steps.
+
+## Step 1
+
 And install dependencies with uv:
 
 ```bash
@@ -35,13 +45,13 @@ mkdir data
 mkdir data/voronoi
 ```
 
-
-## Step 1
-
+## Step 2
 Fetch all adresses:
 ```bash
 curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
 ```
+
+## Step 2.2
 
 Example with Frederiksberg (kommune=0147 or 147):
 
@@ -49,6 +59,7 @@ Example with Frederiksberg (kommune=0147 or 147):
 curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?kommunekode=0147&format=csv"
 ```
 
+## Step 3
 Fetch shapefiles
 
 ```bash
@@ -57,12 +68,6 @@ curl -L -o data/admin_boundaries.zip "https://ftp.sdfe.dk/main.html?download&web
 unzip data/admin_boundaries.zip -d data/
 rm data/admin_boundaries.zip
 
-```
-
-Alternatively, run the whole pipeline with `main.sh`:
-
-```bash
-bash main.sh
 ```
 
 
