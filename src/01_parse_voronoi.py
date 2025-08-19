@@ -45,7 +45,8 @@ def parse_voronoi(kom: int):
     gdf_adr = gdf_adr.drop('geometry', axis=1)
     gdf_adr = gdf_adr.set_geometry('voronoi')
 
-    
+    # This "clips" voronoi diagrams to be within administrative borders
+    # You simply find the intersection between the two gdfs
     gdf_out = gpd.overlay(gdf_adr, kom_shape, how = 'intersection')
 
     print(f'{kom} to voronoi done.')

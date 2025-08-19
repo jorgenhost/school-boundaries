@@ -38,7 +38,7 @@ uv sync
 
 Fetch all adresses:
 ```bash
-curl -L -o data/dk_adresser.ndjson "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
+curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
 ```
 
 Example with Frederiksberg (kommune=0147 or 147):
@@ -65,7 +65,7 @@ import polars.selectors as cs
 df = pl.scan_csv('data/dk_adresser.csv').collect(engine = 'streaming').with_columns(
     cs.integer().shrink_dtype()
 )
-df.write_parquet('data/adresser.pq')
+df.write_parquet('data/dk_adresser.pq')
 ```
 
 Or run the two scripts in the `src`-folder:
