@@ -59,6 +59,13 @@ rm data/admin_boundaries.zip
 
 ```
 
+Alternatively, run the whole pipeline with `main.sh`:
+
+```bash
+bash main.sh
+```
+
+
 Then play with it here:
 ```python
 import polars as pl
