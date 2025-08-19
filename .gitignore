@@ -204,3 +204,8 @@ __marimo__/
 
 *.csv
 *.pq
+*.zip
+*.gpkg
+*.json
+*.ndjson
+*.pdf
