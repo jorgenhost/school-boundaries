@@ -37,7 +37,7 @@ Or continue with next steps.
 
 ## Step 1
 
-And install dependencies with uv:
+Install dependencies with uv:
 
 ```bash
 uv sync
