@@ -13,5 +13,5 @@ unzip data/admin_boundaries.zip -d data/
 rm data/admin_boundaries.zip
 
 # Run .py-scripts
-uv run 01_parse_voronoi.py
-uv run 02_plot_voronoi.py
+uv run src/01_parse_voronoi.py
+uv run src/02_plot_voronoi.py
