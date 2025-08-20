@@ -43,6 +43,7 @@ Install dependencies with uv:
 uv sync
 mkdir data
 mkdir data/voronoi
+mkdir data/geometry
 ```
 
 ## Step 2
