@@ -43,6 +43,7 @@ Install dependencies with uv:
 uv sync
 mkdir data
 mkdir data/voronoi
+mkdir data/voronoi/no_interior
 mkdir data/geometry
 ```
 
@@ -83,9 +84,10 @@ df = pl.scan_csv('data/dk_adresser.csv').collect(engine = 'streaming').with_colu
 df.write_parquet('data/dk_adresser.pq')
 ```
 
-Or run the two scripts in the `src`-folder:
+Or run the scripts in the `src`-folder:
 
 ```bash
-uv run src/01_parse_voronoi.py
-uv run src/02_plot_voronoi.py
+uv run src/01_kom_features.py
+uv run src/02_parse_voronoi.py
+uv run src/03_plot_voronoi.py
 ```

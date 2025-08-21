@@ -8,78 +8,73 @@ import geopandas as gpd
 import concurrent.futures
 import tqdm, glob
 import pandas as pd
-from functools import lru_cache
+import ibis
+import utils
 
-df = pl.scan_csv('data/dk_adresser.csv').collect(engine = 'streaming').with_columns(
-    cs.integer().shrink_dtype()
-)
-df.write_parquet('data/dk_adresser.pq')
+SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
-@lru_cache(maxsize=1)
-def load_cleaned_kommune_data():
-    gdf_kom = gpd.read_parquet('data/dk_kom_geo.pq').to_crs(25832)
-    return gdf_kom
+utils.parse_voronoi()
 
-def parse_voronoi(kom: int):
+def clip_voronoi(kom: int):
+    con = ibis.duckdb.connect(extensions=['spatial'])
+    voronoi_table = con.read_parquet(f'{DATA_DIR}/dk_adr_voronoi.pq')
+    kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
+    out_path = f'{DATA_DIR}/voronoi/dk_adresser_voronoi_{kom}.pq'
 
-    gdf_kom = load_cleaned_kommune_data()    
+    kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
 
-    df = (pl.scan_parquet('data/dk_adresser.pq', low_memory = True)
-          .filter(pl.col("kommunekode")==kom)
-          .select(pl.col("vejnavn", "husnr", "postnr", "kommunekode", "landsdelsnuts3"), pl.col("etrs89koordinat_øst").alias("etrs89_east"), pl.col("etrs89koordinat_nord").alias("etrs89_north"))
-          .filter(pl.struct(pl.col("etrs89_east", "etrs89_north")).is_first_distinct())
-          .collect(engine = 'streaming')
-          .to_pandas()
-    )
+    kom_geom = kom_table.geometry.execute()[0]
+    kom_geom_literal = ibis.literal(kom_geom, "geometry")
 
-    gdf_adr = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(x = df.etrs89_east, y=df.etrs89_north), crs=25832)
+    # Compute intersection and add as new column
+    intersected = voronoi_table.mutate(voronoi=voronoi_table.geometry.intersection(kom_geom_literal))
+
+    # Filter for non-empty intersections
+    filtered = intersected.filter(intersected.voronoi.area() > 0)
+
+    # To get the results as a pandas DataFrame:
+    df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
+    
+    df.to_parquet(f'{out_path}.pq')
+
+    print(f'Clipped voronoi polygon within kom = {kom}.')
+
+def clip_voronoi_no_interior(kom: int):
+    con = ibis.duckdb.connect(extensions=['spatial'])
+    voronoi_table = con.read_parquet(f'{DATA_DIR}/dk_adr_voronoi.pq')
+    kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_interior_holes.pq')
+    out_path = f'{DATA_DIR}/voronoi/no_interior/dk_adresser_voronoi_no_interior_holes_{kom}.pq'
+
+    kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
+
+    kom_geom = kom_table.geometry.execute()[0]
+    kom_geom_literal = ibis.literal(kom_geom, "geometry")
+
+    # Compute intersection and add as new column
+    intersected = voronoi_table.mutate(voronoi=voronoi_table.geometry.intersection(kom_geom_literal))
+
+    # Filter for non-empty intersections
+    filtered = intersected.filter(intersected.voronoi.area() > 0)
+
+    # To get the results as a pandas DataFrame:
+    df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
+    
+    df.to_parquet(f'{out_path}.pq')
+
+    print(f'Clipped voronoi polygon (no interior holes) within kom = {kom}.')
 
 
-    kom_shape = gdf_kom[gdf_kom['nationalcode']==kom].reset_index(drop=True)
-    kom_geom = kom_shape['geometry'][0]
-    voronoi_polys = gpd.GeoDataFrame(geometry=gdf_adr.voronoi_polygons(extend_to=kom_geom))
 
-    gdf_adr = gdf_adr.sjoin(voronoi_polys, how = 'right', predicate='within').drop('index_left', axis=1)
-    gdf_adr['voronoi'] = gdf_adr['geometry']
-    gdf_adr['point'] = gpd.points_from_xy(x = gdf_adr.etrs89_east, y=gdf_adr.etrs89_north, crs = 25832)
-
-
-
-    gdf_adr = gdf_adr.drop('geometry', axis=1)
-    gdf_adr = gdf_adr.set_geometry('voronoi')
-    gdf_adr = gpd.overlay(kom_shape, gdf_adr)
-
-    # This "clips" voronoi diagrams to be within administrative borders
-    # You simply find the intersection between the two gdfs
-    gdf_out = gpd.overlay(gdf_adr, kom_shape, how = 'intersection')
-
-    print(f'{kom} to voronoi done.')
-
-    gdf_out.to_parquet(f'data/voronoi/dk_adresser_voronoi_{kom}.pq')
-
-
-lf = pl.scan_parquet('data/dk_adresser.pq').select(pl.col("kommunekode").unique())
+lf = pl.scan_parquet(f'{DATA_DIR}/dk_adresser.pq').select(pl.col("kommunekode").unique())
 kommunerz = lf.collect().to_series().to_list()
 with concurrent.futures.ThreadPoolExecutor(max_workers = 8) as executor:
-    res = list(tqdm.tqdm(executor.map(parse_voronoi, kommunerz)))
+    res = list(tqdm.tqdm(executor.map(clip_voronoi_no_interior, kommunerz)))
 
-files = glob.glob('data/voronoi/dk_adresser_v*.pq')
 
-def concat_voronoi_data(list: list[str] | str):
-    if len(list)==1:
-        gdf = gpd.read_parquet(list[0])
-        gdf = gdf.reset_index(drop = True)
-        gdf.to_parquet('data/dk_adresser_voronoi.pq')
-    else:
-        gdf = gpd.read_parquet(list[0])
-        for data in list:
-            if data == list[0]:
-                pass
-            gdf2 = gpd.read_parquet(data)
+# files = glob.glob(f'{DATA_DIR}/voronoi/dk_adresser_v*.pq')
+# concat_voronoi_data(files)
 
-            gdf = pd.concat([gdf, gdf2])
-
-            gdf = gdf.reset_index(drop = True)
-        gdf.to_parquet('data/dk_adresser_voronoi.pq')
-
-concat_voronoi_data(files)
+files = glob.glob(f'{DATA_DIR}/voronoi/no_interior/dk_adresser_v*.pq')
+utils.concat_geo_data(files, path = f'{DATA_DIR}/data/dk_adresser_voronoi_no_interior.pq')
