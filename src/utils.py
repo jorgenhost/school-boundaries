@@ -22,9 +22,10 @@ def load_kommune_data(clean: bool = False):
 
 def parse_voronoi():
 
-    df = (pl.scan_parquet('data/dk_adresser.pq', low_memory = True)
-            .select(pl.col("vejnavn", "husnr", "postnr", "kommunekode", "landsdelsnuts3"), pl.col("etrs89koordinat_øst").alias("etrs89_east"), pl.col("etrs89koordinat_nord").alias("etrs89_north"))
+    df = (pl.scan_parquet('data/dk_adr.pq', low_memory = True)
+            .select(pl.col("kommunekode"), pl.col("etrs89koordinat_øst").alias("etrs89_east"), pl.col("etrs89koordinat_nord").alias("etrs89_north"))
             .filter(pl.struct(pl.col("etrs89_east", "etrs89_north")).is_first_distinct())
+            .with_columns(access_address_id = pl.struct(pl.col("etrs89_east", "etrs89_north")).hash().rank('dense').shrink_dtype())
             .collect(engine = 'streaming')
             .to_pandas()
     )
@@ -33,7 +34,7 @@ def parse_voronoi():
 
 
     voronoi_polys = gpd.GeoDataFrame(geometry=gdf_adr.voronoi_polygons())
-    gdf_adr = gdf_adr.sjoin(voronoi_polys, how = 'right', predicate='within').drop('index_left', axis=1)
+    gdf_adr = gdf_adr.sjoin(voronoi_polys, how = 'right', predicate='within').drop(['index_left'], axis=1)
     gdf_adr['point'] = gpd.points_from_xy(x = gdf_adr.etrs89_east, y=gdf_adr.etrs89_north, crs = 25832)
     gdf_adr.to_parquet('data/dk_adr_voronoi.pq')
 

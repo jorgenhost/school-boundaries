@@ -1,14 +1,9 @@
 import os
-
-os.environ['POLARS_MAX_THREADS'] = '16'
-
-import polars as pl
-from polars import selectors as cs
-import geopandas as gpd
-import concurrent.futures
-import tqdm, glob
-import pandas as pd
 import ibis
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import geopandas as gpd
+import polars as pl
+import tqdm
 import utils
 
 SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
@@ -17,64 +12,58 @@ DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 utils.parse_voronoi()
 
-def clip_voronoi(kom: int):
-    con = ibis.duckdb.connect(extensions=['spatial'])
-    voronoi_table = con.read_parquet(f'{DATA_DIR}/dk_adr_voronoi.pq')
-    kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
-    out_path = f'{DATA_DIR}/voronoi/dk_adresser_voronoi_{kom}.pq'
-
-    kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
-
-    kom_geom = kom_table.geometry.execute()[0]
-    kom_geom_literal = ibis.literal(kom_geom, "geometry")
-
-    # Compute intersection and add as new column
-    intersected = voronoi_table.mutate(voronoi=voronoi_table.geometry.intersection(kom_geom_literal))
-
-    # Filter for non-empty intersections
-    filtered = intersected.filter(intersected.voronoi.area() > 0)
-
-    # To get the results as a pandas DataFrame:
-    df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
-    
-    df.to_parquet(f'{out_path}')
-
-    print(f'Clipped voronoi polygon within kom = {kom}.')
-
-def clip_voronoi_no_interior(kom: int):
-    con = ibis.duckdb.connect(extensions=['spatial'])
-    voronoi_table = con.read_parquet(f'{DATA_DIR}/dk_adr_voronoi.pq')
-    kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_interior_holes.pq')
-    out_path = f'{DATA_DIR}/voronoi/no_interior/dk_adresser_voronoi_no_interior_holes_{kom}.pq'
-
-    kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
-
-    kom_geom = kom_table.geometry.execute()[0]
-    kom_geom_literal = ibis.literal(kom_geom, "geometry")
-
-    # Compute intersection and add as new column
-    intersected = voronoi_table.mutate(voronoi=voronoi_table.geometry.intersection(kom_geom_literal))
-
-    # Filter for non-empty intersections
-    filtered = intersected.filter(intersected.voronoi.area() > 0)
-
-    # To get the results as a pandas DataFrame:
-    df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
-    
-    df.to_parquet(f'{out_path}')
-
-    print(f'Clipped voronoi polygon (no interior holes) within kom = {kom}.')
-
-
-
-lf = pl.scan_parquet(f'{DATA_DIR}/dk_adresser.pq').select(pl.col("kommunekode").unique())
+lf = pl.scan_parquet(f'{DATA_DIR}/dk_adr.pq').select(pl.col("kommunekode").unique())
 kommunerz = lf.collect().to_series().to_list()
-with concurrent.futures.ThreadPoolExecutor(max_workers = 8) as executor:
-    res = list(tqdm.tqdm(executor.map(clip_voronoi_no_interior, kommunerz)))
 
+def create_con():
+    return ibis.duckdb.connect(extensions = ['spatial'])
 
-# files = glob.glob(f'{DATA_DIR}/voronoi/dk_adresser_v*.pq')
-# concat_voronoi_data(files)
+def clip_voronoi_stream(
+    kom: int
 
-files = glob.glob(f'{DATA_DIR}/voronoi/no_interior/dk_adresser_v*.pq')
-utils.concat_geo_data(files, path = f'{DATA_DIR}/data/dk_adresser_voronoi_no_interior.pq')
+):
+    # Adresses as voronoi polygons, but not clipped within a boundary
+    voronoi_path=f'{DATA_DIR}/dk_adr_voronoi.pq'
+
+    # Kommune shapefiles with natural boundaries
+    kom_path=f'{DATA_DIR}/dk_kom_geo_natural_boundaries.pq'
+    out_dir=f'{DATA_DIR}/voronoi/adr_by_kom/dk_adr_voronoi_clipped_{kom}.pq'
+
+    con = create_con()
+
+    con.raw_sql("SET arrow_large_buffer_size=true;")
+    con.raw_sql("SET memory_limit = '2GB'")
+    con.raw_sql("SET threads to 2;")
+    con.raw_sql("SET preserve_insertion_order=false;")
+
+    
+    con.raw_sql(f"""
+        COPY (
+          SELECT
+            v.access_address_id,
+            ST_Intersection(v.geometry, k.geometry) AS voronoi_clipped
+          FROM read_parquet('{voronoi_path}') v
+          JOIN read_parquet('{kom_path}') k
+          ON v.kommunekode = k.nationalcode
+          WHERE ST_Intersects(v.geometry, k.geometry)
+            AND v.kommunekode = {kom}
+        )
+        TO '{out_dir}' (FORMAT 'PARQUET');
+    """)
+
+    gpd.read_parquet(f'{out_dir}').set_crs(25832, allow_override=True).to_parquet(f'{out_dir}')
+
+    print(f'Clipped voronoi polygons within kom = {kom}.')
+
+def main():
+    with ProcessPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(clip_voronoi_stream, kom): kom for kom in kommunerz}
+        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+            year = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f'{e}')
+
+if __name__ == "__main__":
+    main()

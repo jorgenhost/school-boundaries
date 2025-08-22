@@ -1,8 +1,8 @@
-# School boundaries - tessellation of adresses with Voronoi diagrams
+# School boundaries - tessellation of addresses with Voronoi diagrams
 
 This repo shows how to tessellate individual addresses as their own polygon(s). This can be used as neighborhood definition or other geographic delineation/boundary.
 
-Because Voronoi diagrams can extend to infinity, the idea here is to provide administrative boundaries that "clips"/"coerces" Voronoi diagrams within your administrative border of choice. In addition, I show to utilize OpenStreetMap to fetch geographic features for parks and waterways to remove natural boundaries. In this project, I use municipalities. Below is an example of Frederiksberg municipality where I simulate school districts.
+Because Voronoi diagrams can extend to infinity, the idea here is to provide administrative boundaries that "clips"/"coerces" Voronoi diagrams within your administrative border of choice. In addition, I show how to utilize OpenStreetMap to fetch geographic features for parks and waterways to infer natural boundaries. In this project, I use municipalities. Below is an example of Frederiksberg municipality where I simulate school districts.
 
 ![pic](figs/voronoi_tess_fberg.svg)
 ![pic](figs/voronoi_tess_fberg_districts.svg)
@@ -51,7 +51,7 @@ mkdir data/geometry
 ## Step 2
 Fetch all adresses:
 ```bash
-curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
+curl -L -o data/dk_adr.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"
 ```
 
 ## Step 2.2
@@ -59,7 +59,7 @@ curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?
 Example with Frederiksberg (kommune=0147 or 147):
 
 ```bash
-curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?kommunekode=0147&format=csv"
+curl -L -o data/dk_adr.csv "https://api.dataforsyningen.dk/adgangsadresser?kommunekode=0147&format=csv"
 ```
 
 ## Step 3
@@ -79,10 +79,10 @@ Then play with it here:
 import polars as pl
 import polars.selectors as cs
 
-df = pl.scan_csv('data/dk_adresser.csv').collect(engine = 'streaming').with_columns(
+df = pl.scan_csv('data/dk_adr.csv').collect(engine = 'streaming').with_columns(
     cs.integer().shrink_dtype()
 )
-df.write_parquet('data/dk_adresser.pq')
+df.write_parquet('data/dk_adr.pq')
 ```
 
 Or run the scripts in the `src`-folder:

@@ -3,7 +3,7 @@ import numpy as np
 import glob, tqdm
 import polars as pl
 import polars.selectors as cs
-import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import osmnx as ox
 import pandas as pd
 import time, os
@@ -25,10 +25,10 @@ def parse_kommune_data():
     gdf_kom['nationalcode'] = gdf_kom['nationalcode'].astype('int')
     gdf_kom.to_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
 
-df = pl.scan_csv(f'{DATA_DIR}/dk_adresser.csv').collect(engine = 'streaming').with_columns(
+df = pl.scan_csv(f'{DATA_DIR}/dk_adr.csv').collect(engine = 'streaming').with_columns(
     cs.integer().shrink_dtype()
 )
-df.write_parquet(f'{DATA_DIR}/dk_adresser.pq')
+df.write_parquet(f'{DATA_DIR}/dk_adr.pq')
 
 parse_kommune_data()
 
@@ -54,7 +54,7 @@ def get_geo_features(kommunerz: list[int], gdf_kom: gpd.GeoDataFrame):
 
         parks = gpd.GeoDataFrame(parks).set_geometry('polygons').to_crs(25832)
 
-        parks.to_parquet(f'{DATA_DIR}/geometry/parks_{kom}.pq')
+        parks.to_parquet(f'{DATA_DIR}/geometry/osm/parks_{kom}.pq')
         print(f'Parsed parks for kom={kom}')
 
         water = ox.features.features_from_polygon(
@@ -66,7 +66,7 @@ def get_geo_features(kommunerz: list[int], gdf_kom: gpd.GeoDataFrame):
             }).polygonize()
         time.sleep(2)
         water = gpd.GeoDataFrame(water).set_geometry('polygons').to_crs(25832)
-        water.to_parquet(f'{DATA_DIR}/geometry/water_{kom}.pq')
+        water.to_parquet(f'{DATA_DIR}/geometry/osm/water_{kom}.pq')
         print(f'Parsed water for kom={kom}')
 
 def kommune_interior_holes(kom: int):
@@ -75,8 +75,8 @@ def kommune_interior_holes(kom: int):
     kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
     kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
 
-    water_table = con.read_parquet(f'{DATA_DIR}/geometry/water_{kom}.pq')
-    park_table = con.read_parquet(f'{DATA_DIR}/geometry/parks_{kom}.pq')
+    water_table = con.read_parquet(f'{DATA_DIR}/geometry/osm/water_{kom}.pq')
+    park_table = con.read_parquet(f'{DATA_DIR}/geometry/osm/parks_{kom}.pq')
 
     # Assuming only one geometry per water/park table
     water_union = water_table.polygons.execute().union_all()
@@ -97,15 +97,22 @@ def kommune_interior_holes(kom: int):
 
     print(f'Removed interior holes (parks/water) from kom = {kom}.')
 
-    df.to_parquet(f'{DATA_DIR}/geometry/kom_geom_cleaned_{kom}.pq')
+    df.to_parquet(f'{DATA_DIR}/geometry/kom_natural_boundaries/kom_geom_cleaned_{kom}.pq')
 
 # Fetch features from OpenStreetMap
-get_geo_features(kommunerz=kommunerz, gdf_kom=gdf_kom)
+# get_geo_features(kommunerz=kommunerz, gdf_kom=gdf_kom)
 
 
-with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    res = tqdm.tqdm(executor.map(kommune_interior_holes, kommunerz))
+with ProcessPoolExecutor(max_workers=4) as executor:
+    futures = {executor.submit(kommune_interior_holes, kom): kom for kom in kommunerz}
+    for future in tqdm.tqdm(as_completed(futures), total=len(kommunerz)):
+        try:
+            result = future.result()
+        except Exception as e:
+            kom = futures[future]
+            print(f"Error processing kommune {kom}: {e}")
 
-files = glob.glob(f'{DATA_DIR}/geometry/kom_geom_cleaned_*.pq')
 
-utils.concat_geo_data(files, path = f'{DATA_DIR}/dk_kom_geo_interior_holes.pq')
+files = glob.glob(f'{DATA_DIR}/geometry/kom_natural_boundaries/kom_geom_cleaned_*.pq')
+
+utils.concat_geo_data(files, path = f'{DATA_DIR}/dk_kom_geo_natural_boundaries.pq')
