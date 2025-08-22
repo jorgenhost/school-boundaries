@@ -6,6 +6,7 @@ import polars as pl
 import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from functools import lru_cache
 from scipy.spatial.distance import cdist
 import numpy as np
@@ -41,12 +42,11 @@ def parse_voronoi():
 def plot_voronoi_with_inset(
     gdf: gpd.GeoDataFrame,
     kommunekode: int,
-    zoom_xlim: list,
-    zoom_ylim: list,
-    inset_pos: list = [0.75, 0.7, 0.3, 0.3],
+    zoom_xlim: tuple[float, float],
+    zoom_ylim: tuple[float, float],
+    inset_pos: tuple[float, float, float, float] = (0.75, 0.7, 0.3, 0.3),
     linewidth_main: float = 0.25,
-    linewidth_zoom: float = 0.8,
-    savepath: str | None = None
+    linewidth_zoom: float = 0.8
 ):
     """
     Plot a Voronoi tessellation for a given kommune with an inset zoom.
@@ -105,25 +105,25 @@ def plot_voronoi_with_inset(
     ax.indicate_inset_zoom(axins, edgecolor="k", linewidth=2, linestyle='--', alpha=1)
 
     plt.tight_layout()
-
-    if savepath:
-        fig.savefig(f"{savepath}.pdf", bbox_inches="tight")
-        fig.savefig(f"{savepath}.png", bbox_inches="tight")
-        fig.savefig(f"{savepath}.svg", bbox_inches="tight")
-    else:
-        plt.show()
+    plt.close()
 
     return fig, ax
 
+def make_custom_palette(n, saturation=0.65, value=0.9):
+    """
+    Generate n distinct colors using HSV evenly spaced around the hue circle.
+    """
+    hues = np.linspace(0, 1, n, endpoint=False)
+    return [mcolors.hsv_to_rgb((h, saturation, value)) for h in hues]
+
+
 def plot_school_districts(
     gdf_adr: gpd.GeoDataFrame,
-    school_seeds: gpd.GeoDataFrame,
+    gdf_school: gpd.GeoDataFrame,
     district_col: str = "school_district",
     colors: list | None = None,
     cmap: str = "tab10",
-    figsize: tuple = (15, 9),
-    savepath: str | None = None
-):
+    figsize: tuple = (15, 9)):
     """
     Plot school district assignment with colored polygons and school seeds.
 
@@ -131,7 +131,7 @@ def plot_school_districts(
     ----------
     gdf_adr : gpd.GeoDataFrame
         GeoDataFrame of addresses (with a 'district_col' column).
-    school_seeds : gpd.GeoDataFrame
+    gdf_school : gpd.GeoDataFrame
         GeoDataFrame with school locations (expects 'point' geometry).
     district_col : str
         Column with school district assignment (int).
@@ -149,6 +149,7 @@ def plot_school_districts(
     fig, ax : matplotlib Figure and Axes
     """
     fig, ax = plt.subplots(figsize=figsize)
+    ax.set_axis_off()
 
     # Plot base geometry
     gdf_adr.plot(ax=ax, facecolor="none", edgecolor="k", linewidth=0.3)
@@ -159,27 +160,28 @@ def plot_school_districts(
 
     # Handle color scheme
     if colors is None:
-        cmap_obj = plt.get_cmap(cmap)
-        colors = [cmap_obj(i / max(1, n_districts - 1)) for i in range(n_districts)]
+        colors = make_custom_palette(n_districts)
 
     # Plot each district
     for i, d in enumerate(districts):
         gdf_adr[gdf_adr[district_col] == d].plot(
-            ax=ax, facecolor=colors[i], alpha=0.5, edgecolor="none"
+            ax=ax, facecolor=colors[i], alpha=0.6, edgecolor="none"
         )
 
-    # Plot school seeds (large square + small triangle)
-    school_seeds["point"].plot(ax=ax, color="k", markersize=100, marker="s")
-    school_seeds["point"].plot(ax=ax, color="y", markersize=25, marker="^")
+    # Plot school seeds
+    gdf_school["point"].plot(
+    ax=ax,
+    color = 'white',
+    edgecolor="black",
+    markersize=120,
+    marker="^",
+    label="Schools"
+    )
 
+    # Add legend
+    ax.legend()
     plt.tight_layout()
-
-    if savepath:
-        fig.savefig(f"{savepath}.pdf", bbox_inches="tight")
-        fig.savefig(f"{savepath}.png", bbox_inches="tight")
-        fig.savefig(f"{savepath}.svg", bbox_inches="tight")
-    else:
-        plt.show()
+    plt.close()
 
     return fig, ax
 
@@ -187,7 +189,7 @@ def plot_school_districts(
 def assign_school(
     gdf_adr: gpd.GeoDataFrame,
     gdf_school: gpd.GeoDataFrame,
-    prob: bool = True,
+    prob: bool = False,
     probs: list = [0.85, 0.1, 0.05],
     n_neighbors: int = 3,
     east_col: str = "etrs89_east",

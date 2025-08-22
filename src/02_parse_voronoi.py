@@ -37,7 +37,7 @@ def clip_voronoi(kom: int):
     # To get the results as a pandas DataFrame:
     df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
     
-    df.to_parquet(f'{out_path}.pq')
+    df.to_parquet(f'{out_path}')
 
     print(f'Clipped voronoi polygon within kom = {kom}.')
 
@@ -61,7 +61,7 @@ def clip_voronoi_no_interior(kom: int):
     # To get the results as a pandas DataFrame:
     df = filtered.execute().drop(['__index_level_0__', 'geometry'], axis = 1).set_geometry('voronoi')
     
-    df.to_parquet(f'{out_path}.pq')
+    df.to_parquet(f'{out_path}')
 
     print(f'Clipped voronoi polygon (no interior holes) within kom = {kom}.')
 

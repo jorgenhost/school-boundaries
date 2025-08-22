@@ -1,126 +1,28 @@
 import geopandas as gpd
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy.spatial.distance import cdist
+import utils
+import os
 
-fig, ax = plt.subplots(figsize = (12, 8))
-
-gdf = gpd.read_parquet('data/dk_adresser_voronoi.pq')
-gdf_kom = gdf[gdf['kommunekode']==147].reset_index(drop=True)
-gdf_kom.plot(ax = ax, facecolor='none', edgecolor='k', linewidth=0.25)
-ax.set_axis_off()
-
-# Define zoom coordinates
-zoom_xlim = [721305, 721575]
-zoom_ylim = [6177113, 6177353]
-
-# Create inset axes for the zoom
-# [x_position, y_position, width, height] in axes coordinates (0-1)
-axins = ax.inset_axes([0.75, 0.7, 0.3, 0.3])
-
-# Filter data for the zoom area
-gdf_zoom = gdf_kom.cx[zoom_xlim[0]:zoom_xlim[1], zoom_ylim[0]:zoom_ylim[1]]
-
-# Plot the zoomed data
-gdf_zoom.plot(ax=axins, facecolor='none', edgecolor='k', linewidth=0.8)
-
-# Set the zoom limits
-axins.set_xlim(zoom_xlim)
-axins.set_ylim(zoom_ylim)
-
-# Remove tick labels from inset
-axins.set_xticklabels([])
-axins.set_yticklabels([])
-
-# Add a border around the inset
-for spine in axins.spines.values():
-    spine.set_edgecolor('black')
-    spine.set_linewidth(1.5)
-
-# Draw lines connecting the main plot to the inset
-ax.indicate_inset_zoom(axins, edgecolor="k", linewidth=2, linestyle='--', alpha=1)
-
-plt.tight_layout()
-plt.show()
-fig.savefig('figs/voronoi_tess_fberg.pdf', bbox_inches = 'tight')
-fig.savefig('figs/voronoi_tess_fberg.png', bbox_inches = 'tight')
-
-##############################
-## RANDOM SCHOOL ASSIGNMENT ##
-##############################
-
-n_districts = 8
-
-# Randomly select seed polygons as schools
-school_seeds = gdf_kom.sample(n=n_districts, random_state=1234).copy().reset_index(drop=True)
-school_seeds['school_district'] = range(n_districts)
-
-def assign_school(gdf_adr: gpd.GeoDataFrame, gdf_school: gpd.GeoDataFrame, prob: bool = True) -> gpd.GeoSeries:
-    p1 = gdf_adr[['etrs89_east', 'etrs89_north']].to_numpy()
-
-    p2 = gdf_school[['etrs89_east', 'etrs89_north']].to_numpy()
-
-    distances = cdist(p1, p2)
-
-    # Get indices of the 3 nearest schools for each address
-    nearest_schools = np.argsort(distances, axis=1)[:, :3]
-    
-
-    if prob is True:
-        # Probabilities for 1st, 2nd, 3rd nearest
-        probs = [0.85, 0.1, 0.05]
-
-        # Randomly assign based on probabilities
-        assignments = [
-            np.random.choice(nearest_schools[i], p=probs)
-            for i in range(len(nearest_schools))
-        ]
-
-        school_assignment = np.array(assignments)
-    
-    else:
-        school_assignment = np.argmin(distances, axis=1)
-
-    return school_assignment
-
-gdf_kom['school_district'] = assign_school(gdf_adr=gdf_kom, gdf_school=school_seeds, prob = False)
+SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 
-fig, ax = plt.subplots(figsize = (12, 8))
-gdf_kom.plot(ax = ax, facecolor='none', edgecolor='k', linewidth=0.25)
-ax.set_axis_off()
+gdf_adr = gpd.read_parquet(f'{DATA_DIR}/dk_adresser_voronoi_no_interior.pq')
 
 # Define zoom coordinates
-zoom_xlim = [721305, 721575]
-zoom_ylim = [6177113, 6177353]
+zoom_xlim = (721305, 721575)
+zoom_ylim = (6177113, 6177353)
 
-# Create inset axes for the zoom
-# [x_position, y_position, width, height] in axes coordinates (0-1)
-axins = ax.inset_axes([0.75, 0.7, 0.3, 0.3])
+fig, ax = utils.plot_voronoi_with_inset(gdf = gdf_adr, kommunekode = 147, zoom_xlim=zoom_xlim, zoom_ylim=zoom_ylim)
 
-# Filter data for the zoom area
-gdf_zoom = gdf_kom.cx[zoom_xlim[0]:zoom_xlim[1], zoom_ylim[0]:zoom_ylim[1]]
+fig.savefig(f'figs/voronoi_tess_fberg.pdf', bbox_inches = 'tight')
+fig.savefig(f'figs/voronoi_tess_fberg.svg', bbox_inches = 'tight')
 
-# Plot the zoomed data
-gdf_zoom.plot(ax=axins, facecolor='none', edgecolor='k', linewidth=0.8)
 
-# Set the zoom limits
-axins.set_xlim(zoom_xlim)
-axins.set_ylim(zoom_ylim)
+gdf_adr = gdf_adr[gdf_adr['kommunekode']==147].reset_index(drop=True)
+gdf_school = gdf_adr.sample(6, random_state=1234).reset_index(drop=True)
 
-# Remove tick labels from inset
-axins.set_xticklabels([])
-axins.set_yticklabels([])
-
-# Add a border around the inset
-for spine in axins.spines.values():
-    spine.set_edgecolor('black')
-    spine.set_linewidth(1.5)
-
-# Draw lines connecting the main plot to the inset
-ax.indicate_inset_zoom(axins, edgecolor="k", linewidth=2, linestyle='--', alpha=1)
-
-plt.tight_layout()
-plt.show()
-fig.savefig('figs/voronoi_tess_fberg_school.pdf', bbox_inches = 'tight')
-fig.savefig('figs/voronoi_tess_fber_school.png', bbox_inches = 'tight')
+gdf_adr['school_district'] = utils.assign_school(gdf_adr = gdf_adr, gdf_school = gdf_school)
+fig,ax = utils.plot_school_districts(gdf_adr = gdf_adr, gdf_school = gdf_school)
+fig.savefig(f'figs/voronoi_tess_fberg_districts.pdf', bbox_inches = 'tight')
+fig.savefig(f'figs/voronoi_tess_fberg_districts.svg', bbox_inches = 'tight')

@@ -69,8 +69,6 @@ def get_geo_features(kommunerz: list[int], gdf_kom: gpd.GeoDataFrame):
         water.to_parquet(f'{DATA_DIR}/geometry/water_{kom}.pq')
         print(f'Parsed water for kom={kom}')
 
-# get_geo_features(kommunerz=kommunerz, gdf_kom=gdf_kom)
-
 def kommune_interior_holes(kom: int):
     
     con = ibis.duckdb.connect(extensions=['spatial'])
@@ -100,6 +98,10 @@ def kommune_interior_holes(kom: int):
     print(f'Removed interior holes (parks/water) from kom = {kom}.')
 
     df.to_parquet(f'{DATA_DIR}/geometry/kom_geom_cleaned_{kom}.pq')
+
+# Fetch features from OpenStreetMap
+get_geo_features(kommunerz=kommunerz, gdf_kom=gdf_kom)
+
 
 with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
     res = tqdm.tqdm(executor.map(kommune_interior_holes, kommunerz))

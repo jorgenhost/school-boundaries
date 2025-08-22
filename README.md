@@ -2,9 +2,10 @@
 
 This repo shows how to tessellate individual addresses as their own polygon(s). This can be used as neighborhood definition or other geographic delineation/boundary.
 
-Because Voronoi diagrams can extend to infinity, the idea here is to provide administrative boundaries that "clips"/"coerces" Voronoi diagrams within your administrative border of choice. In this project, I use municipalities. Below is an example of Frederiksberg municipality.
+Because Voronoi diagrams can extend to infinity, the idea here is to provide administrative boundaries that "clips"/"coerces" Voronoi diagrams within your administrative border of choice. In addition, I show to utilize OpenStreetMap to fetch geographic features for parks and waterways to remove natural boundaries. In this project, I use municipalities. Below is an example of Frederiksberg municipality where I simulate school districts.
 
-![pic](figs/voronoi_tess_fberg.png)
+![pic](figs/voronoi_tess_fberg.svg)
+![pic](figs/voronoi_tess_fberg_districts.svg)
 
 ## Step 0
 Install uv:
