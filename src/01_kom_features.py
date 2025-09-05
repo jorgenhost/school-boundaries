@@ -1,15 +1,13 @@
 import geopandas as gpd
 import numpy as np
-import glob, tqdm
 import polars as pl
-import polars.selectors as cs
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import polars_st as st
 import osmnx as ox
-import pandas as pd
-import time, os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+import os
+import tqdm
 import utils
-import ibis
-from functools import lru_cache
 
 np.random.seed(1234)
 
@@ -17,102 +15,52 @@ SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
-## some quick data parsing ##
-def parse_kommune_data():
-    gdf_kom = gpd.read_file(f'{DATA_DIR}/au_inspire.gpkg').to_crs(25832)
-    gdf_kom = gdf_kom[gdf_kom['nationallevelname']=='Kommune']
-    gdf_kom = gdf_kom[~gdf_kom['nationalcode'].str.contains('DK')].reset_index(drop=True)
-    gdf_kom['nationalcode'] = gdf_kom['nationalcode'].astype('int')
-    gdf_kom.to_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
+## Some quick data parsing ##
+utils.parse_data()
 
-df = pl.scan_csv(f'{DATA_DIR}/dk_adr.csv').collect(engine = 'streaming').with_columns(
-    cs.integer().shrink_dtype()
-)
-df.write_parquet(f'{DATA_DIR}/dk_adr.pq')
-
-parse_kommune_data()
-
-@lru_cache(maxsize=1)
-def load_kommune_data():
-    gdf_kom = gpd.read_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
-    return gdf_kom
-
-gdf_kom = load_kommune_data().to_crs(4326)
-kommunerz = gdf_kom['nationalcode'].to_list()
-
-def get_geo_features(kommunerz: list[int], gdf_kom: gpd.GeoDataFrame):
-    for kom in kommunerz:
-        gdf_kom_filtered = gdf_kom[gdf_kom['nationalcode']==kom].reset_index(drop=True)
-        geom_kom = gdf_kom_filtered['geometry'][0]
-
-        parks = ox.features_from_polygon(geom_kom, tags={
-            'leisure': ['park', 'nature_reserve', 'recreation_ground', 'garden'],
-            'landuse': ['recreation_ground', 'forest', 'meadow']
-        }).polygonize()
-
-        time.sleep(2)
-
-        parks = gpd.GeoDataFrame(parks).set_geometry('polygons').to_crs(25832)
-
-        parks.to_parquet(f'{DATA_DIR}/geometry/osm/parks_{kom}.pq')
-        print(f'Parsed parks for kom={kom}')
-
-        water = ox.features.features_from_polygon(
-            geom_kom,
-            tags={
-                'natural': ['water'],
-                'waterway': ['river', 'stream', 'canal'],
-                'water': True
-            }).polygonize()
-        time.sleep(2)
-        water = gpd.GeoDataFrame(water).set_geometry('polygons').to_crs(25832)
-        water.to_parquet(f'{DATA_DIR}/geometry/osm/water_{kom}.pq')
-        print(f'Parsed water for kom={kom}')
-
-def kommune_interior_holes(kom: int):
-    
-    con = ibis.duckdb.connect(extensions=['spatial'])
-    kom_table  = con.read_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
-    kom_table = kom_table.filter(kom_table.nationalcode == kom).select('geometry')
-
-    water_table = con.read_parquet(f'{DATA_DIR}/geometry/osm/water_{kom}.pq')
-    park_table = con.read_parquet(f'{DATA_DIR}/geometry/osm/parks_{kom}.pq')
-
-    # Assuming only one geometry per water/park table
-    water_union = water_table.polygons.execute().union_all()
-    park_union = park_table.polygons.execute().union_all()
-
-    water_geom_lit = ibis.literal(water_union, "geometry")
-    park_geom_lit = ibis.literal(park_union, "geometry")
-
-    # Chain the difference operations
-    kom_table_clean = kom_table.mutate(
-        geometry=kom_table.geometry
-            .difference(water_geom_lit)
-            .difference(park_geom_lit),
-        nationalcode = kom
-    )
-
-    df = kom_table_clean.execute()
-
-    print(f'Removed interior holes (parks/water) from kom = {kom}.')
-
-    df.to_parquet(f'{DATA_DIR}/geometry/kom_natural_boundaries/kom_geom_cleaned_{kom}.pq')
-
-# Fetch features from OpenStreetMap
-# get_geo_features(kommunerz=kommunerz, gdf_kom=gdf_kom)
+lf_kom = pl.scan_parquet(f'{DATA_DIR}/dk_kom_geo_raw_after_2007.pq')
 
 
-with ProcessPoolExecutor(max_workers=4) as executor:
-    futures = {executor.submit(kommune_interior_holes, kom): kom for kom in kommunerz}
-    for future in tqdm.tqdm(as_completed(futures), total=len(kommunerz)):
-        try:
-            result = future.result()
-        except Exception as e:
-            kom = futures[future]
-            print(f"Error processing kommune {kom}: {e}")
+kommunerz = lf_kom.select(pl.col("kom").unique()).collect().to_series().to_list()
 
+def get_geo_features(kom: int):
 
-files = glob.glob(f'{DATA_DIR}/geometry/kom_natural_boundaries/kom_geom_cleaned_*.pq')
+    lf_kom = pl.scan_parquet(f'{DATA_DIR}/dk_kom_geo_raw_after_2007.pq').filter(pl.col("kom")==kom)
 
-utils.concat_geo_data(files, path = f'{DATA_DIR}/dk_kom_geo_natural_boundaries.pq')
+    gdf_kom = lf_kom.collect().st.to_geopandas(geometry_name = 'geometry_kom').to_crs(4326)
+    geom_kom = gdf_kom['geometry_kom'][0]
+
+    # Combine tags for parks and waterways
+    tags = {
+        'leisure': ['park', 'nature_reserve', 'recreation_ground', 'garden'],
+        'landuse': ['recreation_ground', 'forest', 'meadow'],
+        'natural': ['water'],
+        'waterway': ['river', 'stream', 'canal'],
+        'water': True
+    }
+    features = ox.features_from_polygon(geom_kom, tags=tags).to_crs(25832)
+    features_poly = features.polygonize()
+
+    time.sleep(2)
+
+    # Save features (lines etc)
+    features.to_parquet(f'{DATA_DIR}/geometry/osm/lines/parks_and_water_{kom}.pq')
+    # Convert to polygons and save
+    features_gdf = gpd.GeoDataFrame(features_poly).set_geometry('polygons')
+
+    # Save full result (parks & water together)
+    features_gdf.to_parquet(f'{DATA_DIR}/geometry/osm/parks_and_water_{kom}.pq')
+    print(f'Parsed parks and water for kom={kom}')
+
+def main():
+   with ProcessPoolExecutor(max_workers=8) as executor:
+       futures = {executor.submit(get_geo_features, kom): kom for kom in kommunerz}
+       for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+           year = futures[future]
+           try:
+               future.result()
+           except Exception as e:
+               print(f'{e}')
+
+if __name__ == "__main__":
+   main()

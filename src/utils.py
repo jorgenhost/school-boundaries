@@ -3,14 +3,69 @@ import os
 os.environ['POLARS_MAX_THREADS'] = '16'
 
 import polars as pl
+import polars.selectors as cs
 import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import polars_st as st
 from functools import lru_cache
 from scipy.spatial.distance import cdist
 import numpy as np
+import re
+from rapidfuzz import process, fuzz
 
+SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+
+## some quick data parsing ##
+def parse_data(old_kom_codes: bool = True):
+    df = pl.scan_csv(f'{DATA_DIR}/dk_adr.csv').collect(engine = 'streaming').with_columns(
+    cs.integer().shrink_dtype()
+    )
+    df.write_parquet(f'{DATA_DIR}/dk_adr.pq')
+    # From https://www.dst.dk/extranet/staticsites/TIMES3/html/97f2b67b-25e5-424f-ae92-0e4477d5d299.htm
+
+    kom_old = pl.read_csv(f'{DATA_DIR}/kom_old.csv')
+
+    def fuzzy_match(x, choices, scorer=fuzz.WRatio):
+        match = process.extractOne(x, choices, scorer=scorer, score_cutoff=80)
+        return match[0] if match else None
+
+    if old_kom_codes is True:
+
+        gdf = gpd.read_file(f'{DATA_DIR}/KOMMUNAL_SHAPE_UTM32-EUREF89/Kommune.shp')
+        gdf = gdf[gdf['til'].str.contains('2006')].reset_index(drop = True)
+
+        def remove_kommune(text):
+            """Remove 'kommune' (case-insensitive) from text"""
+            if not text:
+                return ""
+            return re.sub(r'\bkommune\b', '', str(text), flags=re.IGNORECASE).strip()
+
+        # Preprocess the choices once
+        kom_old_names = kom_old["navn"].to_list()
+        kom_old_cleaned = [remove_kommune(name) for name in kom_old_names]
+
+        gdf["match"] = gdf["navn"].apply(lambda x: fuzzy_match(remove_kommune(x), kom_old_cleaned))
+
+        # Join back
+        gdf = gdf.merge(kom_old.to_pandas()[['navn', 'kom']], left_on='match', right_on='navn', how="left")
+
+        gdf = gdf[['kom', 'geometry']]
+        gdf['kom'] = gdf['kom'].astype('int16')
+        gdf['geometry'] = gdf['geometry'].force_2d()
+        gdf.to_parquet(f'{DATA_DIR}/dk_kom_geo_raw.pq')
+    
+    else:
+        gdf = gpd.read_file(f'{DATA_DIR}/au_inspire.gpkg')
+        gdf = st.from_geopandas(gdf).select(pl.col("nationalcode").alias("kom").cast(pl.Int16), st.geom("geometry").alias("geometry_kom").st.set_srid(25832))
+        gdf.write_parquet(f'{DATA_DIR}/dk_kom_geo_raw_after_2007.pq')
+
+
+def load_spatial_pq(path: str, crs: int = 25832):
+    return st.from_geopandas(gpd.read_parquet(path).set_crs(crs, allow_override=True))
 
 @lru_cache(maxsize=1)
 def load_kommune_data(clean: bool = False):
@@ -27,7 +82,10 @@ def parse_voronoi():
             .filter(pl.struct(pl.col("etrs89_east", "etrs89_north")).is_first_distinct())
             .with_columns(access_address_id = pl.struct(pl.col("etrs89_east", "etrs89_north")).hash().rank('dense').shrink_dtype())
             .collect(engine = 'streaming')
-            .to_pandas()
+    )
+
+    gdf_adr = df.with_columns(
+        point = st.point(pl.concat_arr("etrs89_east", "etrs89_north")).st.set_srid(25832)
     )
 
     gdf_adr = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(x = df.etrs89_east, y=df.etrs89_north), crs=25832)
@@ -42,7 +100,6 @@ def parse_voronoi():
 
 def plot_voronoi_with_inset(
     gdf: gpd.GeoDataFrame,
-    kommunekode: int,
     zoom_xlim: tuple[float, float],
     zoom_ylim: tuple[float, float],
     inset_pos: tuple[float, float, float, float] = (0.75, 0.7, 0.3, 0.3),
@@ -78,15 +135,14 @@ def plot_voronoi_with_inset(
     fig, ax = plt.subplots(figsize=(12, 8))
 
     # Filter kommune
-    gdf_kom = gdf[gdf['kommunekode'] == kommunekode].reset_index(drop=True)
-    gdf_kom.plot(ax=ax, facecolor='none', edgecolor='k', linewidth=linewidth_main)
+    gdf.plot(ax=ax, facecolor='none', edgecolor='k', linewidth=linewidth_main)
     ax.set_axis_off()
 
     # Inset axes
     axins = ax.inset_axes(inset_pos)
 
     # Filter zoom area
-    gdf_zoom = gdf_kom.cx[zoom_xlim[0]:zoom_xlim[1], zoom_ylim[0]:zoom_ylim[1]]
+    gdf_zoom = gdf.cx[zoom_xlim[0]:zoom_xlim[1], zoom_ylim[0]:zoom_ylim[1]]
     gdf_zoom.plot(ax=axins, facecolor='none', edgecolor='k', linewidth=linewidth_zoom)
 
     # Set limits
@@ -250,7 +306,7 @@ def assign_school(
 
     return school_assignment
 
-def concat_geo_data(list: list[str] | str, path):
+def concat_geo_data(list: list[str] | str, path, save: bool = True):
     if len(list)==1:
         gdf = gpd.read_parquet(list[0])
         gdf = gdf.reset_index(drop = True)
@@ -265,4 +321,7 @@ def concat_geo_data(list: list[str] | str, path):
             gdf = pd.concat([gdf, gdf2])
 
             gdf = gdf.reset_index(drop = True)
-        gdf.to_parquet(f'{path}')
+        if save is True:
+            gdf.to_parquet(f'{path}')
+        else:
+            return gdf

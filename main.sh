@@ -1,10 +1,8 @@
 #!/usr/bin/env -S uv run --script
 
 uv sync
-mkdir data
 mkdir data/voronoi
-mkdir data/voronoi/no_interior
-mkrdir data/geometry
+mkdir data/geometry/osm
 
 # Fetch all adresses
 curl -L -o data/dk_adresser.csv "https://api.dataforsyningen.dk/adgangsadresser?&format=csv"

@@ -42,10 +42,8 @@ Install dependencies with uv:
 
 ```bash
 uv sync
-mkdir data
 mkdir data/voronoi
-mkdir data/voronoi/no_interior
-mkdir data/geometry
+mkdir data/geometry/osm
 ```
 
 ## Step 2
