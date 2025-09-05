@@ -1,18 +1,12 @@
-# %%
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import geopandas as gpd
 import polars as pl
 import polars_st as st
-import tqdm
-import utils
 
 SRC_DIR =  os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 
-# %%
 lf_kom = pl.scan_parquet(f'{DATA_DIR}/dk_kom_geo_raw_after_2007.pq').select(pl.col("kom"), st.geom("geometry_kom").st.set_srid(25832))
 
 
