@@ -25,8 +25,9 @@ def parse_data(old_kom_codes: bool = True):
     cs.integer().shrink_dtype()
     )
     df.write_parquet(f'{DATA_DIR}/dk_adr.pq')
+    os.remove(f'{DATA_DIR}/dk_adr.csv')
+    
     # From https://www.dst.dk/extranet/staticsites/TIMES3/html/97f2b67b-25e5-424f-ae92-0e4477d5d299.htm
-
     kom_old = pl.read_csv(f'{DATA_DIR}/kom_old.csv')
 
     def fuzzy_match(x, choices, scorer=fuzz.WRatio):

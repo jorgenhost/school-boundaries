@@ -207,7 +207,6 @@ __marimo__/
 data/K*
 
 _*.py
-*.csv
 *.pq
 *.zip
 *.gpkg
