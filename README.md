@@ -43,7 +43,9 @@ Install dependencies with uv:
 ```bash
 uv sync
 mkdir data/voronoi
+mkdir data/geometry
 mkdir data/geometry/osm
+mkdir data/geometry/osm/lines
 ```
 
 ## Step 2
@@ -71,6 +73,8 @@ rm data/admin_boundaries.zip
 
 ```
 
+If you need old (pre-2007) municipal borders, then download these from (dataforsyningen.dk)[https://dataforsyningen.dk/data/3967].
+
 
 Then play with it here:
 ```python
@@ -89,4 +93,18 @@ Or run the scripts in the `src`-folder:
 uv run src/01_kom_features.py
 uv run src/02_parse_voronoi.py
 uv run src/03_plot_voronoi.py
+```
+
+You may need to adjust the `max_workers` parameter to fit your computational ressources when parallelizing the code:
+
+```python
+def main():
+   with ProcessPoolExecutor(max_workers=4) as executor:
+       futures = {executor.submit(get_geo_features, kom): kom for kom in kommunerz}
+       for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
+           year = futures[future]
+           try:
+               future.result()
+           except Exception as e:
+               print(f'{e}')
 ```

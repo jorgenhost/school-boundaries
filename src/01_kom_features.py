@@ -53,7 +53,7 @@ def get_geo_features(kom: int):
     print(f'Parsed parks and water for kom={kom}')
 
 def main():
-   with ProcessPoolExecutor(max_workers=8) as executor:
+   with ProcessPoolExecutor(max_workers=4) as executor:
        futures = {executor.submit(get_geo_features, kom): kom for kom in kommunerz}
        for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
            year = futures[future]

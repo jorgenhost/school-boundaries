@@ -20,7 +20,7 @@ PROJECT_ROOT = os.path.dirname(SRC_DIR)
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
 ## some quick data parsing ##
-def parse_data(old_kom_codes: bool = True):
+def parse_data(old_kom_codes: bool = False):
     df = pl.scan_csv(f'{DATA_DIR}/dk_adr.csv').collect(engine = 'streaming').with_columns(
     cs.integer().shrink_dtype()
     )
@@ -61,20 +61,11 @@ def parse_data(old_kom_codes: bool = True):
     
     else:
         gdf = gpd.read_file(f'{DATA_DIR}/au_inspire.gpkg')
+        gdf = gdf[~gdf['nationalcode'].str.contains("DK")]
+        gdf = gdf[gdf['nationallevelname']=='Kommune']
         gdf = st.from_geopandas(gdf).select(pl.col("nationalcode").alias("kom").cast(pl.Int16), st.geom("geometry").alias("geometry_kom").st.set_srid(25832))
         gdf.write_parquet(f'{DATA_DIR}/dk_kom_geo_raw_after_2007.pq')
 
-
-def load_spatial_pq(path: str, crs: int = 25832):
-    return st.from_geopandas(gpd.read_parquet(path).set_crs(crs, allow_override=True))
-
-@lru_cache(maxsize=1)
-def load_kommune_data(clean: bool = False):
-    if clean is True:
-        gdf_kom = gpd.read_parquet('data/dk_kom_geo.pq')
-    else: 
-        gdf_kom = gpd.read_parquet('data/dk_kom_geo_raw.pq')
-    return gdf_kom
 
 def plot_voronoi_with_inset(
     gdf: gpd.GeoDataFrame,
