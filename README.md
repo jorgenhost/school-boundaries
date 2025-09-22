@@ -73,7 +73,7 @@ rm data/admin_boundaries.zip
 
 ```
 
-If you need old (pre-2007) municipal borders, then download these from (dataforsyningen.dk)[https://dataforsyningen.dk/data/3967].
+If you need old (pre-2007) municipal borders, then download these from [dataforsyningen.dk](https://dataforsyningen.dk/data/3967).
 
 
 Then play with it here:
