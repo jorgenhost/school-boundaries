@@ -1,4 +1,6 @@
 import os
+import os
+os.environ['POLARS_MAX_THREADS'] = "2"
 import polars as pl
 import polars_st as st
 import tqdm

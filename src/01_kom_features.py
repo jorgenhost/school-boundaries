@@ -1,11 +1,12 @@
 import geopandas as gpd
+import os
+os.environ['POLARS_MAX_THREADS'] = "2"
 import numpy as np
 import polars as pl
 import polars_st as st
 import osmnx as ox
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
-import os
 import tqdm
 import utils
 
